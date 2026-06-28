@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  f1_telemetry:
+    build: .
+    container_name: f1_telemetry_app
+    ports:
+      - "8501:8501" # Web UI
+      - "20777:20777/udp" # UDP Traffic
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
