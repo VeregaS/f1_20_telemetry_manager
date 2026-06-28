@@ -1,8 +1,6 @@
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from sqlalchemy.orm import Session as DBSession
-
 from src.parser import process_packet, ParsedSession, ParsedLap, ParsedTelemetry
 from src.database import SessionLocal
 from src.models import Session, Lap, TelemetryData
@@ -14,110 +12,100 @@ class TelemetryStateManager:
         self.queue = queue
         self.executor = ThreadPoolExecutor(max_workers=2)
         
-        self.current_session_id: int | None = None
-        self.current_session_uid: int | None = None
-        self.current_lap_id: int | None = None
-        self.current_lap_num: int = 0
-        self.current_lap_distance: float = 0.0
+        self.current_session_id = None
+        self.current_session_uid = None
+        self.current_lap_id = None
+        self.current_lap_num = 0
+        self.current_lap_distance = 0.0
         
-        self.telemetry_buffer: list[dict] = []
-        self.BATCH_SIZE: int = 600
+        self.telemetry_buffer = []
+        self.BATCH_SIZE = 50  # <--- СНИЗИЛИ для быстрой проверки
 
     async def run(self):
         logger.info("Менеджер состояния запущен.")
-        loop = asyncio.get_running_loop()
-        
         while True:
             data = await self.queue.get()
             parsed_data = process_packet(data)
             
-            if parsed_data is None:
-                self.queue.task_done()
-                continue
-                
-            if isinstance(parsed_data, ParsedSession):
-                await loop.run_in_executor(self.executor, self._handle_session, parsed_data)
-            elif isinstance(parsed_data, ParsedLap):
-                await loop.run_in_executor(self.executor, self._handle_lap, parsed_data)
-            elif isinstance(parsed_data, ParsedTelemetry):
-                self._handle_telemetry(parsed_data)
-                
-                if len(self.telemetry_buffer) >= self.BATCH_SIZE:
-                    buffer_copy = self.telemetry_buffer.copy()
-                    self.telemetry_buffer.clear()
-                    await loop.run_in_executor(self.executor, self._flush_telemetry, buffer_copy)
-                    
+            if parsed_data:
+                logger.info(f"Получен пакет типа: {type(parsed_data).__name__}") # Раскомментируйте это, если нужно увидеть тип каждого пакета
+                if isinstance(parsed_data, ParsedSession):
+                    self._handle_session(parsed_data)
+                elif isinstance(parsed_data, ParsedLap):
+                    self._handle_lap(parsed_data)
+                elif isinstance(parsed_data, ParsedTelemetry):
+                    self._handle_telemetry(parsed_data)
+            
             self.queue.task_done()
 
-    def _handle_session(self, session_data: ParsedSession):
+    def _handle_session(self, session_data):
         with SessionLocal() as db:
             if self.current_session_uid != session_data.session_uid:
-                new_session = Session(
-                    track_id=session_data.track_id,
-                    session_type=session_data.session_type
-                )
+                new_session = Session(track_id=session_data.track_id, session_type=session_data.session_type)
                 db.add(new_session)
                 db.commit()
                 self.current_session_id = new_session.id
                 self.current_session_uid = session_data.session_uid
-                
-                self.current_lap_id = None
-                self.current_lap_num = 0
-                self.current_lap_distance = 0.0
-                
-                logger.info(f"Создана новая сессия: ID {self.current_session_id}, UID {self.current_session_uid}")
+                logger.info(f"Сессия {self.current_session_id} создана.")
 
     def _handle_lap(self, lap_data: ParsedLap):
         if not self.current_session_id:
             return
 
+        # ИСПРАВЛЕНИЕ: Мы должны брать дистанцию из пакета круга
         self.current_lap_distance = lap_data.lap_distance
 
         with SessionLocal() as db:
-            if self.current_lap_id is None or lap_data.lap_number != self.current_lap_num:
-                if self.telemetry_buffer:
-                    self._flush_telemetry(self.telemetry_buffer.copy())
-                    self.telemetry_buffer.clear()
+            existing_lap = db.query(Lap).filter(
+                Lap.session_id == self.current_session_id,
+                Lap.lap_number == lap_data.lap_number
+            ).first()
 
-                new_lap = Lap(
-                    session_id=self.current_session_id,
-                    lap_number=lap_data.lap_number
-                )
+            if existing_lap:
+                self.current_lap_id = existing_lap.id
+            else:
+                new_lap = Lap(session_id=self.current_session_id, lap_number=lap_data.lap_number)
                 db.add(new_lap)
                 db.commit()
+                db.refresh(new_lap)
                 self.current_lap_id = new_lap.id
-                self.current_lap_num = lap_data.lap_number
-                logger.info(f"Начат круг {self.current_lap_num} (ID: {self.current_lap_id})")
-            
-            elif self.current_lap_id:
-                lap_record = db.query(Lap).filter(Lap.id == self.current_lap_id).first()
-                if lap_record:
-                    lap_record.lap_time_ms = lap_data.current_lap_time_ms
-                    lap_record.sector1_ms = lap_data.sector1_ms
-                    lap_record.sector2_ms = lap_data.sector2_ms
-                    lap_record.is_valid = lap_data.is_valid
-                    db.commit()
+                logger.info(f"--- НОВЫЙ КРУГ {lap_data.lap_number} (ID: {self.current_lap_id}) ---")
+
+            lap_record = db.query(Lap).get(self.current_lap_id)
+            if lap_record and lap_data.current_lap_time_ms > 0:
+                lap_record.lap_time_ms = lap_data.current_lap_time_ms
+                db.commit()
+                
+            self.current_lap_num = lap_data.lap_number
 
     def _handle_telemetry(self, telemetry_data: ParsedTelemetry):
-        if not self.current_lap_id:
+        if not self.current_lap_id: return
+        
+        # Защита: не пишем телеметрию, если машина стоит (скорость 0)
+        if telemetry_data.speed == 0 and self.current_lap_distance == 0:
             return
             
         self.telemetry_buffer.append({
             "lap_id": self.current_lap_id,
-            "lap_distance": self.current_lap_distance,
+            "lap_distance": self.current_lap_distance, # Теперь здесь будут реальные данные
             "speed": telemetry_data.speed,
             "throttle": telemetry_data.throttle,
             "brake": telemetry_data.brake,
             "gear": telemetry_data.gear,
             "steer": telemetry_data.steer
         })
+        
+        if len(self.telemetry_buffer) >= self.BATCH_SIZE:
+            self._flush_telemetry()
 
-    def _flush_telemetry(self, buffer: list):
-        if not buffer:
+    def _flush_telemetry(self):
+        if not self.telemetry_buffer: 
             return
         try:
             with SessionLocal() as db:
-                db.bulk_insert_mappings(TelemetryData, buffer)
+                db.bulk_insert_mappings(TelemetryData, self.telemetry_buffer)
                 db.commit()
+            logger.info(f"УСПЕХ: В БД записано {len(self.telemetry_buffer)} точек телеметрии для LapID {self.current_lap_id}")
+            self.telemetry_buffer.clear()
         except Exception as e:
-            logger.error(f"Ошибка при записи телеметрии: {e}")
+            logger.error(f"Ошибка записи в БД: {e}")

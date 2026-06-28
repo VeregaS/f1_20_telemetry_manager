@@ -33,9 +33,10 @@ class Lap(Base):
 class TelemetryData(Base):
     __tablename__ = 'telemetry_data'
     
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # primary_key=True и autoincrement=True должны быть на месте
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     lap_id: Mapped[int] = mapped_column(ForeignKey('laps.id'), nullable=False)
-    lap_distance: Mapped[float] = mapped_column(nullable=False, index=True) 
+    lap_distance: Mapped[float] = mapped_column(nullable=False) 
     speed: Mapped[int] = mapped_column(nullable=False)
     throttle: Mapped[float] = mapped_column(nullable=False)
     brake: Mapped[float] = mapped_column(nullable=False)
