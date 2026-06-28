@@ -98,7 +98,7 @@ def perform_lap_analysis(db: Session, reference_lap_id: int, compare_lap_id: int
     comp_raw = get_telemetry_df(db, compare_lap_id)
     
     if ref_raw.empty or comp_raw.empty:
-        raise ValueError("Отсутствуют данные телеметрии для одного или обоих кругов.")
+        return pd.DataFrame(), pd.DataFrame(), [{'type': 'speed', 'message': 'Данные для круга еще не записаны или повреждены.'}]
         
     # Определяем общую дистанцию (по самому длинному массиву)
     max_dist = max(ref_raw['lap_distance'].max(), comp_raw['lap_distance'].max())
