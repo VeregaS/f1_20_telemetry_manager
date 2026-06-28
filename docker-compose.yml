@@ -1,12 +1,24 @@
 version: '3.8'
 
 services:
-  f1_telemetry:
+  collector:
     build: .
-    container_name: f1_telemetry_app
+    container_name: f1_telemetry_collector
+    command: ["python", "main.py"]
     ports:
-      - "8501:8501" # Web UI
       - "20777:20777/udp" # UDP Traffic
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  dashboard:
+    build: .
+    container_name: f1_telemetry_dashboard
+    command: ["streamlit", "run", "src/dashboard.py", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501" # Web UI
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - collector

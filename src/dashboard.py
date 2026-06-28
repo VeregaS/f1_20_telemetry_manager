@@ -11,12 +11,14 @@ from src.analysis import perform_lap_analysis
 st.set_page_config(page_title="F1 2020 Telemetry", layout="wide")
 st.title("Анализ телеметрии F1 2020")
 
-@st.cache_resource
-def get_db():
-    """Кэширование подключения к БД для Streamlit."""
-    return SessionLocal()
+from src.database import SessionLocal, init_db
 
-db = get_db()
+init_db()
+
+st.set_page_config(page_title="F1 2020 Telemetry", layout="wide")
+st.title("Анализ телеметрии F1 2020")
+
+db = SessionLocal()
 
 # --- САЙДБАР: Фильтры ---
 st.sidebar.header("Выбор данных")
@@ -31,12 +33,19 @@ session_options = {s.id: f"Сессия {s.id} (Трасса: {s.track_id})" for
 selected_session_id = st.sidebar.selectbox("Сессия", options=list(session_options.keys()), format_func=lambda x: session_options[x])
 
 # 2. Выбор кругов
-laps = db.query(Lap).filter(Lap.session_id == selected_session_id, Lap.is_valid == True).order_by(Lap.lap_time_ms).all()
+# Добавлен фильтр Lap.lap_time_ms.isnot(None) для исключения незаконченных кругов
+laps = db.query(Lap).filter(
+    Lap.session_id == selected_session_id, 
+    Lap.is_valid == True,
+    Lap.lap_time_ms.isnot(None)
+).order_by(Lap.lap_time_ms).all()
+
 if len(laps) < 2:
-    st.warning("В выбранной сессии недостаточно валидных кругов для сравнения.")
+    st.warning("В выбранной сессии недостаточно завершенных и валидных кругов для сравнения.")
     st.stop()
 
-lap_options = {l.id: f"Круг {l.lap_number} ({l.lap_time_ms / 1000:.3f} с)" for l in laps}
+# Безопасное извлечение (l.lap_time_ms or 0) удовлетворяет Pylance
+lap_options = {l.id: f"Круг {l.lap_number} ({(l.lap_time_ms or 0) / 1000:.3f} с)" for l in laps}
 
 ref_lap_id = st.sidebar.selectbox("Эталонный круг", options=list(lap_options.keys()), format_func=lambda x: lap_options[x], index=0)
 comp_lap_id = st.sidebar.selectbox("Сравниваемый круг", options=list(lap_options.keys()), format_func=lambda x: lap_options[x], index=1)
@@ -53,8 +62,11 @@ except ValueError as e:
     st.stop()
 
 # --- ИНФОРМАЦИОННЫЙ БЛОК (KPI) ---
-ref_time = db.query(Lap.lap_time_ms).filter(Lap.id == ref_lap_id).scalar() / 1000
-comp_time = db.query(Lap.lap_time_ms).filter(Lap.id == comp_lap_id).scalar() / 1000
+ref_time_ms = db.query(Lap.lap_time_ms).filter(Lap.id == ref_lap_id).scalar()
+comp_time_ms = db.query(Lap.lap_time_ms).filter(Lap.id == comp_lap_id).scalar()
+
+ref_time = (ref_time_ms or 0) / 1000
+comp_time = (comp_time_ms or 0) / 1000
 delta_time = comp_time - ref_time
 
 col1, col2, col3 = st.columns(3)
