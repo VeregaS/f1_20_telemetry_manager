@@ -1,45 +1,45 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, Float, Boolean, DateTime, ForeignKey, BigInteger
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import ForeignKey, BigInteger
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 class Session(Base):
     __tablename__ = 'sessions'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    track_id = Column(Integer, nullable=False)
-    session_type = Column(Integer, nullable=False)
-    date = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    track_id: Mapped[int] = mapped_column(nullable=False)
+    session_type: Mapped[int] = mapped_column(nullable=False)
+    date: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     
-    laps = relationship("Lap", back_populates="session", cascade="all, delete-orphan")
+    laps: Mapped[list["Lap"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 class Lap(Base):
     __tablename__ = 'laps'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey('sessions.id'), nullable=False)
-    lap_number = Column(Integer, nullable=False)
-    lap_time_ms = Column(Integer)
-    sector1_ms = Column(Integer)
-    sector2_ms = Column(Integer)
-    sector3_ms = Column(Integer)
-    is_valid = Column(Boolean, default=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey('sessions.id'), nullable=False)
+    lap_number: Mapped[int] = mapped_column(nullable=False)
+    lap_time_ms: Mapped[int | None] = mapped_column(default=None)
+    sector1_ms: Mapped[int | None] = mapped_column(default=None)
+    sector2_ms: Mapped[int | None] = mapped_column(default=None)
+    sector3_ms: Mapped[int | None] = mapped_column(default=None)
+    is_valid: Mapped[bool] = mapped_column(default=True)
     
-    session = relationship("Session", back_populates="laps")
-    telemetry = relationship("TelemetryData", back_populates="lap", cascade="all, delete-orphan")
+    session: Mapped["Session"] = relationship(back_populates="laps")
+    telemetry: Mapped[list["TelemetryData"]] = relationship(back_populates="lap", cascade="all, delete-orphan")
 
 class TelemetryData(Base):
     __tablename__ = 'telemetry_data'
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    lap_id = Column(Integer, ForeignKey('laps.id'), nullable=False)
-    # Индекс для ускорения синхронизации и интерполяции по дистанции
-    lap_distance = Column(Float, nullable=False, index=True) 
-    speed = Column(Integer, nullable=False)
-    throttle = Column(Float, nullable=False)
-    brake = Column(Float, nullable=False)
-    gear = Column(Integer, nullable=False)
-    steer = Column(Float, nullable=False)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    lap_id: Mapped[int] = mapped_column(ForeignKey('laps.id'), nullable=False)
+    lap_distance: Mapped[float] = mapped_column(nullable=False, index=True) 
+    speed: Mapped[int] = mapped_column(nullable=False)
+    throttle: Mapped[float] = mapped_column(nullable=False)
+    brake: Mapped[float] = mapped_column(nullable=False)
+    gear: Mapped[int] = mapped_column(nullable=False)
+    steer: Mapped[float] = mapped_column(nullable=False)
     
-    lap = relationship("Lap", back_populates="telemetry")
+    lap: Mapped["Lap"] = relationship(back_populates="telemetry")

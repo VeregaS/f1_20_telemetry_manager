@@ -1,7 +1,6 @@
 import asyncio
 import logging
-
-from requests_cache import Optional
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +15,6 @@ class F1TelemetryProtocol(asyncio.DatagramProtocol):
         logger.info("UDP-сервер запущен. Ожидание телеметрии F1 2020 на порту 20777...")
 
     def datagram_received(self, data: bytes, addr: tuple):
-        # Неблокирующая передача байт-строки в очередь
         try:
             self.queue.put_nowait(data)
         except asyncio.QueueFull:
@@ -28,9 +26,7 @@ class F1TelemetryProtocol(asyncio.DatagramProtocol):
     def connection_lost(self, exc: Optional[Exception]):
         logger.info("UDP соединение закрыто.")
 
-
 async def start_udp_server(queue: asyncio.Queue, host: str = '0.0.0.0', port: int = 20777) -> asyncio.DatagramTransport:
-    """Инициализация и запуск прослушивания порта."""
     loop = asyncio.get_running_loop()
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: F1TelemetryProtocol(queue),

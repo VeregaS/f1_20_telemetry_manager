@@ -2,8 +2,6 @@ import ctypes
 from dataclasses import dataclass
 from typing import Optional, Union
 
-# --- CTYPES СТРУКТУРЫ (F1 2020 UDP Specification) ---
-
 class PacketHeader(ctypes.LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
@@ -32,7 +30,6 @@ class PacketSessionData(ctypes.LittleEndianStructure):
         ("m_trackLength", ctypes.c_uint16),
         ("m_sessionType", ctypes.c_uint8),
         ("m_trackId", ctypes.c_int8),
-        # Остальные поля опущены для экономии памяти, так как они не требуются в БД
     ]
 
 class LapData(ctypes.LittleEndianStructure):
@@ -102,11 +99,9 @@ class PacketCarTelemetryData(ctypes.LittleEndianStructure):
         ("m_suggestedGear", ctypes.c_int8),
     ]
 
-
-# --- ИММУТАБЕЛЬНЫЕ СТРУКТУРЫ ДАННЫХ (Для передачи в БД) ---
-
 @dataclass(frozen=True)
 class ParsedSession:
+    session_uid: int
     track_id: int
     session_type: int
 
@@ -127,9 +122,6 @@ class ParsedTelemetry:
     gear: int
     steer: float
 
-
-# --- ЧИСТЫЕ ФУНКЦИИ ПАРСИНГА ---
-
 def get_header(data: bytes) -> Optional[PacketHeader]:
     if len(data) < ctypes.sizeof(PacketHeader):
         return None
@@ -140,6 +132,7 @@ def parse_session(data: bytes) -> Optional[ParsedSession]:
         return None
     packet = PacketSessionData.from_buffer_copy(data)
     return ParsedSession(
+        session_uid=packet.m_header.m_sessionUID,
         track_id=packet.m_trackId,
         session_type=packet.m_sessionType
     )
@@ -174,7 +167,6 @@ def parse_telemetry(data: bytes, player_index: int) -> Optional[ParsedTelemetry]
     )
 
 def process_packet(data: bytes) -> Union[ParsedSession, ParsedLap, ParsedTelemetry, None]:
-    """Единая точка входа для обработки пакета."""
     header = get_header(data)
     if not header:
         return None
