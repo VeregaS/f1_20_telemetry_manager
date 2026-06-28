@@ -48,20 +48,26 @@ class TelemetryStateManager:
                 self.current_session_uid = session_data.session_uid
                 logger.info(f"Сессия {self.current_session_id} создана.")
 
-    def _handle_lap(self, lap_data: ParsedLap):
+    def _handle_lap(self, lap_data):
         if not self.current_session_id:
             return
 
+<<<<<<< HEAD
         # ИСПРАВЛЕНИЕ: Мы должны брать дистанцию из пакета круга
         self.current_lap_distance = lap_data.lap_distance
 
         with SessionLocal() as db:
+=======
+        with SessionLocal() as db:
+            # 1. Ищем, существует ли уже такой круг в БД для текущей сессии
+>>>>>>> 605a626e4f5e7f667043ac589e4b3de8787b239f
             existing_lap = db.query(Lap).filter(
                 Lap.session_id == self.current_session_id,
                 Lap.lap_number == lap_data.lap_number
             ).first()
 
             if existing_lap:
+<<<<<<< HEAD
                 self.current_lap_id = existing_lap.id
             else:
                 new_lap = Lap(session_id=self.current_session_id, lap_number=lap_data.lap_number)
@@ -85,6 +91,30 @@ class TelemetryStateManager:
         if telemetry_data.speed == 0 and self.current_lap_distance == 0:
             return
             
+=======
+                # Если круг уже есть, используем его ID
+                self.current_lap_id = existing_lap.id
+            else:
+                # Если круга нет - создаем только тогда
+                new_lap = Lap(session_id=self.current_session_id, lap_number=lap_data.lap_number)
+                db.add(new_lap)
+                db.commit() # Фиксируем создание
+                db.refresh(new_lap)
+                self.current_lap_id = new_lap.id
+                logger.info(f"В БД создан новый круг: {lap_data.lap_number} (ID: {self.current_lap_id})")
+
+            # Обновляем данные текущего круга (время и т.д.)
+            lap_record = db.query(Lap).get(self.current_lap_id)
+            if lap_record and lap_data.current_lap_time_ms > 0:
+                lap_record.lap_time_ms = lap_data.current_lap_time_ms
+                db.commit()
+                
+            self.current_lap_num = lap_data.lap_number
+
+    def _handle_telemetry(self, telemetry_data):
+        if not self.current_lap_id: return
+        
+>>>>>>> 605a626e4f5e7f667043ac589e4b3de8787b239f
         self.telemetry_buffer.append({
             "lap_id": self.current_lap_id,
             "lap_distance": self.current_lap_distance, # Теперь здесь будут реальные данные
